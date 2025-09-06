@@ -8,8 +8,6 @@ export default function Home() {
   const [map, setMap] = useState<google.maps.Map | null>(null);
   const [userLocation, setUserLocation] = useState<google.maps.LatLng | null>(null);
   const [nearestHospital, setNearestHospital] = useState<google.maps.places.Place | null>(null);
-  const [directionsService, setDirectionsService] = useState<google.maps.DirectionsService | null>(null);
-  const [directionsRenderer, setDirectionsRenderer] = useState<google.maps.DirectionsRenderer | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -17,8 +15,8 @@ export default function Home() {
     const initMap = async () => {
       const loader = new Loader({
         apiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY!,
-        version: 'weekly',
-        libraries: ['places', 'marker']
+        version: 'beta', // Use beta for Routes API
+        libraries: ['places', 'marker', 'routes', 'geometry']
       });
 
       try {
@@ -32,8 +30,8 @@ export default function Home() {
           });
 
           setMap(mapInstance);
-          setDirectionsService(new google.maps.DirectionsService());
-          setDirectionsRenderer(new google.maps.DirectionsRenderer());
+          // No longer need DirectionsService and DirectionsRenderer
+          // We'll use the new Routes API instead
         }
       } catch (err) {
         setError('Failed to load Google Maps. Please check your API key.');
@@ -69,15 +67,9 @@ export default function Home() {
   const findNearestHospital = async () => {
     console.log('🏥 Starting hospital search...');
     console.log('🗺️ Map available:', !!map);
-    console.log('🧭 Directions service available:', !!directionsService);
-    console.log('🎨 Directions renderer available:', !!directionsRenderer);
 
-    if (!map || !directionsService || !directionsRenderer) {
-      const missing = [];
-      if (!map) missing.push('map');
-      if (!directionsService) missing.push('directionsService');
-      if (!directionsRenderer) missing.push('directionsRenderer');
-      setError(`Map not initialized properly. Missing: ${missing.join(', ')}`);
+    if (!map) {
+      setError('Map not initialized properly');
       return;
     }
 
@@ -120,8 +112,7 @@ export default function Home() {
           center: location,
           radius: 5000 // 5km radius
         },
-        includedTypes: ['hospital'],
-        keyword: 'hospital',
+        includedPrimaryTypes: ['hospital'],
         fields: ['displayName', 'location', 'formattedAddress', 'id']
       };
 
@@ -158,34 +149,77 @@ export default function Home() {
           return;
         }
 
-        // Get directions to the hospital
-        console.log('🧭 Getting directions to hospital...');
+        // Get route to the hospital using new Routes API
+        console.log('🧭 Getting route to hospital...');
         if (!hospital.location) {
           setError('Hospital location not available');
           setIsLoading(false);
           return;
         }
-        
-        const directionsRequest = {
-          origin: location,
-          destination: hospital.location,
-          travelMode: google.maps.TravelMode.DRIVING
-        };
 
-        console.log('🧭 Directions request:', directionsRequest);
-        directionsService.route(directionsRequest, (result, status) => {
-          console.log('🧭 Directions response status:', status);
-          console.log('🧭 Directions result:', result);
+        try {
+          // Import Routes library
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const routesLibrary = await google.maps.importLibrary('routes') as any;
           
-          if (status === google.maps.DirectionsStatus.OK && result) {
-            directionsRenderer.setDirections(result);
-            directionsRenderer.setMap(map);
-            console.log('✅ Directions rendered successfully');
+          const Route = routesLibrary.Route;
+
+          // Convert LatLng objects to the format expected by Routes API
+          const origin = { 
+            lat: location.lat(), 
+            lng: location.lng() 
+          };
+          const destination = { 
+            lat: hospital.location.lat(), 
+            lng: hospital.location.lng() 
+          };
+
+          const routeRequest = {
+            origin: origin,
+            destination: destination,
+            travelMode: 'DRIVING', // JS Routes library uses DRIVING, not DRIVE
+            fields: ['path', 'distanceMeters', 'durationMillis']
+          };
+
+          console.log('🧭 Route request:', routeRequest);
+          const { routes } = await Route.computeRoutes(routeRequest);
+          console.log('🧭 Route response:', routes);
+
+          if (routes && routes.length > 0) {
+            const route = routes[0];
+            console.log('🧭 Route details:', route);
+            console.log('🧭 Route path:', route.path);
+            
+            if (route.path && route.path.length > 0) {
+              // Convert LatLngAltitude points to LatLngLiteral for Polyline
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const path = route.path.map((point: any) => ({ 
+                lat: point.lat, 
+                lng: point.lng 
+              }));
+              
+              // Draw the route on the map
+              new google.maps.Polyline({
+                map: map,
+                path: path,
+                strokeOpacity: 1,
+                strokeWeight: 6,
+                strokeColor: '#4285F4'
+              });
+              
+              console.log('✅ Route rendered successfully');
+            } else {
+              console.error('❌ No route path returned');
+              setError('Could not get route path to the hospital');
+            }
           } else {
-            console.error('❌ Directions failed:', status);
-            setError(`Could not get directions to the hospital. Status: ${status}`);
+            console.error('❌ No routes found');
+            setError('Could not find route to the hospital');
           }
-        });
+        } catch (routeError) {
+          console.error('❌ Route error:', routeError);
+          setError(`Could not get route to the hospital: ${routeError instanceof Error ? routeError.message : 'Unknown error'}`);
+        }
       } else {
         console.log('❌ No hospitals found');
         setError('No hospitals found nearby');
@@ -260,8 +294,6 @@ export default function Home() {
               <div className="text-sm text-gray-600 space-y-1">
                 <p>API Key: {process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ? '✅ Present' : '❌ Missing'}</p>
                 <p>Map: {map ? '✅ Initialized' : '❌ Not initialized'}</p>
-                <p>Directions Service: {directionsService ? '✅ Ready' : '❌ Not ready'}</p>
-                <p>Directions Renderer: {directionsRenderer ? '✅ Ready' : '❌ Not ready'}</p>
                 <p>User Location: {userLocation ? `✅ ${userLocation.toString()}` : '❌ Not obtained'}</p>
                 <p>Nearest Hospital: {nearestHospital ? `✅ ${nearestHospital.displayName}` : '❌ Not found'}</p>
                 {nearestHospital && (
