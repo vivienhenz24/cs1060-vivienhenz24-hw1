@@ -1,36 +1,99 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Hospital Finder
 
-## Getting Started
+A Next.js web application that helps users find the nearest hospital and provides driving directions using Google Maps API.
 
-First, run the development server:
+## Features
+
+- 🗺️ Interactive Google Maps integration
+- 📍 Automatic geolocation detection
+- 🏥 Find nearest hospital within 5km radius
+- 🧭 Turn-by-turn driving directions
+- 📱 Responsive design with Tailwind CSS
+- ⚡ Fast and modern UI
+
+## Setup Instructions
+
+### 1. Get a Google Maps API Key
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project or select an existing one
+3. Enable the following APIs:
+   - Maps JavaScript API
+   - Places API (New) - for hospital search
+   - Directions API
+4. Create credentials (API Key)
+5. Restrict the API key to your domain for security
+6. **Important**: Make sure to enable billing for your project as the new Places API requires billing to be enabled
+
+### 2. Configure Environment Variables
+
+1. Copy the `.env.local` file:
+   ```bash
+   cp .env.local.example .env.local
+   ```
+
+2. Add your Google Maps API key to `.env.local`:
+   ```
+   NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=your_actual_api_key_here
+   ```
+
+### 3. Install Dependencies
+
+```bash
+npm install
+```
+
+### 4. Run the Development Server
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## How to Use
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. Click the "Find the Nearest Hospital" button
+2. Allow location access when prompted
+3. The app will:
+   - Center the map on your location
+   - Search for hospitals within 5km
+   - Show the nearest hospital with a marker
+   - Display driving directions to the hospital
 
-## Learn More
+## Technologies Used
 
-To learn more about Next.js, take a look at the following resources:
+- **Next.js 15** - React framework
+- **TypeScript** - Type safety
+- **Tailwind CSS** - Styling
+- **Google Maps JavaScript API** - Maps and places
+- **Google Places API** - Hospital search
+- **Google Directions API** - Route planning
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Project Structure
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```
+src/
+├── app/
+│   ├── layout.tsx      # Root layout
+│   ├── page.tsx        # Main hospital finder component
+│   └── globals.css     # Global styles
+```
 
-## Deploy on Vercel
+## API Requirements
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Make sure your Google Maps API key has access to:
+- Maps JavaScript API
+- Places API (New) - for hospital search using modern API
+- Directions API (for route planning)
+- **Note**: The new Places API requires billing to be enabled on your Google Cloud project
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Browser Compatibility
+
+- Modern browsers with geolocation support
+- HTTPS required for geolocation (production)
+- JavaScript enabled
+
+## License
+
+MIT License
