@@ -114,10 +114,23 @@ export default function Home() {
         fields: ['displayName', 'location', 'formattedAddress', 'id']
       };
 
-      const { places } = await Place.searchNearby(request);
+      console.log('🏥 Searching for hospitals with request:', request);
+      let places;
+      try {
+        const response = await Place.searchNearby(request);
+        places = response.places;
+        console.log('🏥 Places API response:', places);
+        console.log('🏥 Number of places found:', places ? places.length : 0);
+      } catch (searchError) {
+        console.error('❌ Error searching for hospitals:', searchError);
+        setError(`Error searching for hospitals: ${searchError instanceof Error ? searchError.message : 'Unknown error'}`);
+        setIsLoading(false);
+        return;
+      }
       
       if (places && places.length > 0) {
         const hospital = places[0];
+        console.log('🏥 First hospital found:', hospital);
         setNearestHospital(hospital);
 
         // Add hospital marker using AdvancedMarkerElement
@@ -192,13 +205,21 @@ export default function Home() {
             origin: origin,
             destination: destination,
             travelMode: 'DRIVING',
-            fields: ['path', 'distanceMeters', 'durationMillis', 'legs']
+            fields: ['path', 'distanceMeters', 'durationMillis', 'legs'],
+            routingPreference: 'TRAFFIC_AWARE_OPTIMAL',
+            computeAlternativeRoutes: false,
+            routeModifiers: {
+              avoidTolls: false,
+              avoidHighways: false,
+              avoidFerries: false
+            }
           };
 
           const { routes } = await Route.computeRoutes(routeRequest);
 
           if (routes && routes.length > 0) {
             const route = routes[0];
+            
             
             // Extract route information
             const distance = route.distanceMeters ? `${Math.round(route.distanceMeters / 1000 * 10) / 10} km` : 'Unknown distance';
@@ -213,8 +234,11 @@ export default function Home() {
                 if (leg.steps) {
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   leg.steps.forEach((step: any) => {
+                    // Use the instructions field directly from the step
+                    const instruction = step.instructions || 'Continue';
+                    
                     steps.push({
-                      instruction: step.navigationInstruction?.instructions || 'Continue',
+                      instruction: instruction,
                       distance: step.distanceMeters ? `${Math.round(step.distanceMeters)}m` : '',
                       duration: step.durationMillis ? `${Math.round(step.durationMillis / 1000)}s` : ''
                     });
@@ -250,6 +274,7 @@ export default function Home() {
           setError(`Could not get route to the hospital: ${routeError instanceof Error ? routeError.message : 'Unknown error'}`);
         }
       } else {
+        console.log('❌ No hospitals found nearby');
         setError('No hospitals found nearby');
       }
 
