@@ -8,7 +8,7 @@ export default function Home() {
   const [map, setMap] = useState<google.maps.Map | null>(null);
   const [userLocation, setUserLocation] = useState<google.maps.LatLng | null>(null);
   const [nearestHospital, setNearestHospital] = useState<google.maps.places.Place | null>(null);
-  const [nearbyHospitals, setNearbyHospitals] = useState<any[]>([]); // other 3
+  const [nearbyHospitals, setNearbyHospitals] = useState<google.maps.places.Place[]>([]); // other 3
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   interface DirectionStep {
@@ -18,12 +18,11 @@ export default function Home() {
   }
   
   const [directions, setDirections] = useState<DirectionStep[]>([]);
-  const [routeInfo, setRouteInfo] = useState<{distance: string, duration: string} | null>(null);
 
   // Keep route polyline and hospital markers to clean up between runs
   const routePolylineRef = useRef<google.maps.Polyline | null>(null);
-  const hospitalMarkersRef = useRef<any[]>([]); // markers for the 3 others
-  const selectedHospitalMarkerRef = useRef<any | null>(null);
+  const hospitalMarkersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([]); // markers for the 3 others
+  const selectedHospitalMarkerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null);
 
   useEffect(() => {
     const initMap = async () => {
@@ -96,7 +95,7 @@ export default function Home() {
     }
   };
 
-  const setSelectedHospitalMarker = async (hospital: any) => {
+  const setSelectedHospitalMarker = async (hospital: google.maps.places.Place) => {
     if (!map || !hospital?.location) return;
     try {
       const { AdvancedMarkerElement } = await google.maps.importLibrary("marker") as google.maps.MarkerLibrary;
@@ -107,17 +106,17 @@ export default function Home() {
       selectedHospitalMarkerRef.current = new AdvancedMarkerElement({
         position: hospital.location,
         map,
-        title: (typeof hospital.displayName === 'string' ? hospital.displayName : hospital.displayName?.text) || 'Selected hospital',
+        title: (typeof hospital.displayName === 'string' ? hospital.displayName : (hospital.displayName as unknown as { text?: string })?.text) || 'Selected hospital',
       });
     } catch {}
   };
 
-  const routeToHospital = async (hospital: any, location: google.maps.LatLng) => {
+  const routeToHospital = async (hospital: google.maps.places.Place, location: google.maps.LatLng) => {
     if (!map || !hospital?.location) return;
     setNearestHospital(hospital);
     setError(null);
     setDirections([]);
-    setRouteInfo(null);
+    
 
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -144,9 +143,6 @@ export default function Home() {
       }
 
       const route = routes[0];
-      const distance = route.distanceMeters ? `${Math.round((route.distanceMeters / 1000) * 10) / 10} km` : 'Unknown distance';
-      const duration = route.durationMillis ? `${Math.round(route.durationMillis / 60000)} min` : 'Unknown duration';
-      setRouteInfo({ distance, duration });
 
       const steps: DirectionStep[] = [];
       if (route.legs && route.legs.length > 0) {
@@ -203,7 +199,6 @@ export default function Home() {
     setIsLoading(true);
     setError(null);
     setDirections([]);
-    setRouteInfo(null);
 
     try {
       // Get user's current location
@@ -234,7 +229,7 @@ export default function Home() {
         },
         includedPrimaryTypes: ['hospital'],
         // Ensure results are ordered by distance; otherwise popularity is used
-        rankPreference: 'DISTANCE' as const,
+        rankPreference: google.maps.places.SearchNearbyRankPreference.DISTANCE,
         maxResultCount: 20,
         // Request extra fields so we can filter out imposters
         fields: [
@@ -251,7 +246,7 @@ export default function Home() {
       };
 
       console.log('🏥 Searching for hospitals with request:', request);
-      let places;
+      let places: google.maps.places.Place[] | undefined;
       try {
         const response = await Place.searchNearby(request);
         places = response.places;
@@ -265,7 +260,7 @@ export default function Home() {
       }
       
       if (places && places.length > 0) {
-        const looksLikeHospital = (p: any): boolean => {
+        const looksLikeHospital = (p: google.maps.places.Place): boolean => {
           // Must be operational
           if (p.businessStatus && p.businessStatus !== 'OPERATIONAL') return false;
           // Type check: primaryType or types should include hospital
@@ -274,7 +269,7 @@ export default function Home() {
           if (!primaryOk && !typesOk) return false;
 
           // Heuristic: exclude entries that look like a person's name
-          const name = (typeof p.displayName === 'string') ? p.displayName : (p.displayName?.text || '');
+          const name = (typeof p.displayName === 'string') ? p.displayName : ((p.displayName as unknown as { text?: string })?.text || '');
           const suspicious = /^(?:[A-Z][a-z]+)\s+(?:[A-Z][a-z]+)(?:\s+[A-Z][a-z]+)?$/.test(name) &&
                              !/(Hospital|Medical|Clinic|Center|Centre|Health|Med|Regional|Urgent|ER|Children|General)/i.test(name);
           if (suspicious) return false;
@@ -301,7 +296,7 @@ export default function Home() {
             return da - db;
           });
           places = sorted;
-        } catch (e) {
+        } catch {
           // If geometry library not available, proceed with API order
         }
         // Keep 3 others after the nearest, ensuring 4 unique total
@@ -311,12 +306,12 @@ export default function Home() {
         // Clear existing hospital markers then add new ones
         clearHospitalMarkers();
         try {
-          others.forEach((p, idx) => {
+          others.forEach((p: google.maps.places.Place, idx: number) => {
             if (!p.location) return;
             const marker = new AdvancedMarkerElement({
               position: p.location,
               map: map,
-              title: (typeof p.displayName === 'string' ? p.displayName : p.displayName?.text) || `Hospital ${idx + 1}`,
+              title: (typeof p.displayName === 'string' ? p.displayName : (p.displayName as unknown as { text?: string })?.text) || `Hospital ${idx + 1}`,
             });
             // Route on marker click
             marker.addListener?.('gmp-click', () => routeToHospital(p, location));
@@ -405,7 +400,7 @@ export default function Home() {
                   >
                     <div className="flex items-center justify-between">
                       <div>
-                        <div className="font-medium text-gray-800">{typeof h.displayName === 'string' ? h.displayName : h.displayName?.text || 'Hospital'}</div>
+                        <div className="font-medium text-gray-800">{typeof h.displayName === 'string' ? h.displayName : (h.displayName as unknown as { text?: string })?.text || 'Hospital'}</div>
                         {h.formattedAddress && (
                           <div className="text-xs text-gray-500">{h.formattedAddress}</div>
                         )}
