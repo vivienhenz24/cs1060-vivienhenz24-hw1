@@ -1,55 +1,36 @@
 # Hospital Finder
+ 
+Hi! I'm Vivien Henz, I worked on this project alone. My github username is vivienhenz24 and you can reach me at vhenz@college.harvard.edu
 
-A Next.js web application that helps users find the nearest hospital and provides driving directions using Google Maps API.
+For this project, I used Cursor as my IDE and gen AI tool, and also used a bit of ChatGPT for general questions about my code.
 
-## Features
+The github repo url: https://github.com/vivienhenz24/cs1060-vivienhenz24-hw1
+The netlify deployment url: https://cs-1060-hw1-vivienhenz24.netlify.app
 
-- 🗺️ Interactive Google Maps integration
-- 📍 Automatic geolocation detection
-- 🏥 Find nearest hospital within 5km radius
-- 🧭 Turn-by-turn driving directions
-- 📱 Responsive design with Tailwind CSS
-- ⚡ Fast and modern UI
+I worked on an application that uses the google maps API. Basically, you click one button and it will find the nearest hospital to you and give you directions (As well as alternative nearby hospitals).
 
-## Setup Instructions
+The biggest issue I encountered was that cursor actually tried to use a bunch of deprecated google maps APIs (for example the one that maps the route from one place to another) In these cases, I had to add console logging to figure out first why I was getting API errors, and then searched with chatgpt what were the new APIs I was supposed to use.
 
-### 1. Get a Google Maps API Key
+In total this project took me 3.5 hours, but that's because I spent time trying to make it look good. I'd estimate the bulk of the work was done in 2 hours.
 
-1. Go to the [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project or select an existing one
-3. Enable the following APIs:
-   - Maps JavaScript API
-   - Places API (New) - for hospital search
-   - Directions API
-4. Create credentials (API Key)
-5. Restrict the API key to your domain for security
-6. **Important**: Make sure to enable billing for your project as the new Places API requires billing to be enabled
+Here are the instructions for running the app locally.
 
-### 2. Configure Environment Variables
-
-1. Copy the `.env.local` file:
-   ```bash
-   cp .env.local.example .env.local
-   ```
-
-2. Add your Google Maps API key to `.env.local`:
+1. Add your Google Maps API key to `.env.local`:
    ```
    NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=your_actual_api_key_here
    ```
 
-### 3. Install Dependencies
+###  Install Dependencies
 
 ```bash
 npm install
 ```
 
-### 4. Run the Development Server
+### Run the Development Server
 
 ```bash
 npm run dev
 ```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
 ## How to Use
 
@@ -61,14 +42,6 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
    - Show the nearest hospital with a marker
    - Display driving directions to the hospital
 
-## Technologies Used
-
-- **Next.js 15** - React framework
-- **TypeScript** - Type safety
-- **Tailwind CSS** - Styling
-- **Google Maps JavaScript API** - Maps and places
-- **Google Places API** - Hospital search
-- **Google Directions API** - Route planning
 
 ## Project Structure
 
@@ -80,20 +53,3 @@ src/
 │   └── globals.css     # Global styles
 ```
 
-## API Requirements
-
-Make sure your Google Maps API key has access to:
-- Maps JavaScript API
-- Places API (New) - for hospital search using modern API
-- Directions API (for route planning)
-- **Note**: The new Places API requires billing to be enabled on your Google Cloud project
-
-## Browser Compatibility
-
-- Modern browsers with geolocation support
-- HTTPS required for geolocation (production)
-- JavaScript enabled
-
-## License
-
-MIT License
