@@ -15,10 +15,10 @@ In total this project took me 3.5 hours, but that's because I spent time trying 
 
 Here are the instructions for running the app locally.
 
-1. Add your Google Maps API key to `.env.local`:
-   ```
-   NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=your_actual_api_key_here
-   ```
+###  Add your Google Maps API key to `.env.local`:
+```
+NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=your_actual_api_key_here
+```
 
 ###  Install Dependencies
 
