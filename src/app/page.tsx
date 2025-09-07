@@ -8,6 +8,7 @@ export default function Home() {
   const [map, setMap] = useState<google.maps.Map | null>(null);
   const [userLocation, setUserLocation] = useState<google.maps.LatLng | null>(null);
   const [nearestHospital, setNearestHospital] = useState<google.maps.places.Place | null>(null);
+  const [nearbyHospitals, setNearbyHospitals] = useState<any[]>([]); // other 3
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   interface DirectionStep {
@@ -18,6 +19,11 @@ export default function Home() {
   
   const [directions, setDirections] = useState<DirectionStep[]>([]);
   const [routeInfo, setRouteInfo] = useState<{distance: string, duration: string} | null>(null);
+
+  // Keep route polyline and hospital markers to clean up between runs
+  const routePolylineRef = useRef<google.maps.Polyline | null>(null);
+  const hospitalMarkersRef = useRef<any[]>([]); // markers for the 3 others
+  const selectedHospitalMarkerRef = useRef<any | null>(null);
 
   useEffect(() => {
     const initMap = async () => {
@@ -72,6 +78,122 @@ export default function Home() {
     });
   };
 
+  const clearHospitalMarkers = () => {
+    try {
+      hospitalMarkersRef.current.forEach((m) => {
+        if (!m) return;
+        // AdvancedMarkerElement is removed by setting map to null
+        m.map = null;
+      });
+    } catch {}
+    hospitalMarkersRef.current = [];
+  };
+
+  const clearRoutePolyline = () => {
+    if (routePolylineRef.current) {
+      routePolylineRef.current.setMap(null);
+      routePolylineRef.current = null;
+    }
+  };
+
+  const setSelectedHospitalMarker = async (hospital: any) => {
+    if (!map || !hospital?.location) return;
+    try {
+      const { AdvancedMarkerElement } = await google.maps.importLibrary("marker") as google.maps.MarkerLibrary;
+      if (selectedHospitalMarkerRef.current) {
+        selectedHospitalMarkerRef.current.map = null;
+        selectedHospitalMarkerRef.current = null;
+      }
+      selectedHospitalMarkerRef.current = new AdvancedMarkerElement({
+        position: hospital.location,
+        map,
+        title: (typeof hospital.displayName === 'string' ? hospital.displayName : hospital.displayName?.text) || 'Selected hospital',
+      });
+    } catch {}
+  };
+
+  const routeToHospital = async (hospital: any, location: google.maps.LatLng) => {
+    if (!map || !hospital?.location) return;
+    setNearestHospital(hospital);
+    setError(null);
+    setDirections([]);
+    setRouteInfo(null);
+
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const routesLibrary = await google.maps.importLibrary('routes') as any;
+      const Route = routesLibrary.Route;
+
+      const origin = { lat: location.lat(), lng: location.lng() };
+      const destination = { lat: hospital.location.lat(), lng: hospital.location.lng() };
+
+      const routeRequest = {
+        origin,
+        destination,
+        travelMode: 'DRIVING',
+        fields: ['path', 'distanceMeters', 'durationMillis', 'legs'],
+        routingPreference: 'TRAFFIC_AWARE_OPTIMAL',
+        computeAlternativeRoutes: false,
+        routeModifiers: { avoidTolls: false, avoidHighways: false, avoidFerries: false },
+      };
+
+      const { routes } = await Route.computeRoutes(routeRequest);
+      if (!routes || routes.length === 0) {
+        setError('Could not find route to the hospital');
+        return;
+      }
+
+      const route = routes[0];
+      const distance = route.distanceMeters ? `${Math.round((route.distanceMeters / 1000) * 10) / 10} km` : 'Unknown distance';
+      const duration = route.durationMillis ? `${Math.round(route.durationMillis / 60000)} min` : 'Unknown duration';
+      setRouteInfo({ distance, duration });
+
+      const steps: DirectionStep[] = [];
+      if (route.legs && route.legs.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        route.legs.forEach((leg: any) => {
+          if (leg.steps) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            leg.steps.forEach((step: any) => {
+              const instruction = step.instructions || 'Continue';
+              steps.push({
+                instruction,
+                distance: step.distanceMeters ? `${Math.round(step.distanceMeters)}m` : '',
+                duration: step.durationMillis ? `${Math.round(step.durationMillis / 1000)}s` : '',
+              });
+            });
+          }
+        });
+      }
+      setDirections(steps);
+
+      // Draw route polyline replacing any previous one
+      clearRoutePolyline();
+      if (route.path && route.path.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const path = route.path.map((point: any) => ({ lat: point.lat, lng: point.lng }));
+        routePolylineRef.current = new google.maps.Polyline({
+          map,
+          path,
+          strokeOpacity: 1,
+          strokeWeight: 6,
+          strokeColor: '#4285F4',
+        });
+      }
+
+      // Fit map to both points
+      const bounds = new google.maps.LatLngBounds();
+      bounds.extend(location);
+      bounds.extend(hospital.location);
+      map.fitBounds(bounds);
+
+      // Update the selected hospital marker
+      await setSelectedHospitalMarker(hospital);
+    } catch (routeError) {
+      setError(`Could not get route to the hospital: ${routeError instanceof Error ? routeError.message : 'Unknown error'}`);
+    }
+  };
+
   const findNearestHospital = async () => {
     if (!map) {
       setError('Map not initialized properly');
@@ -108,13 +230,24 @@ export default function Home() {
       const request = {
         locationRestriction: {
           center: location,
-          radius: 8000 // Search within ~8km; adjust as needed
+          radius: 12000 // Wider net to allow filtering (~12km)
         },
         includedPrimaryTypes: ['hospital'],
         // Ensure results are ordered by distance; otherwise popularity is used
         rankPreference: 'DISTANCE' as const,
         maxResultCount: 20,
-        fields: ['displayName', 'location', 'formattedAddress', 'id']
+        // Request extra fields so we can filter out imposters
+        fields: [
+          'displayName',
+          'location',
+          'formattedAddress',
+          'id',
+          'primaryType',
+          'types',
+          'businessStatus',
+          'rating',
+          'userRatingCount'
+        ]
       };
 
       console.log('🏥 Searching for hospitals with request:', request);
@@ -132,6 +265,32 @@ export default function Home() {
       }
       
       if (places && places.length > 0) {
+        const looksLikeHospital = (p: any): boolean => {
+          // Must be operational
+          if (p.businessStatus && p.businessStatus !== 'OPERATIONAL') return false;
+          // Type check: primaryType or types should include hospital
+          const primaryOk = p.primaryType === 'hospital';
+          const typesOk = Array.isArray(p.types) && p.types.includes('hospital');
+          if (!primaryOk && !typesOk) return false;
+
+          // Heuristic: exclude entries that look like a person's name
+          const name = (typeof p.displayName === 'string') ? p.displayName : (p.displayName?.text || '');
+          const suspicious = /^(?:[A-Z][a-z]+)\s+(?:[A-Z][a-z]+)(?:\s+[A-Z][a-z]+)?$/.test(name) &&
+                             !/(Hospital|Medical|Clinic|Center|Centre|Health|Med|Regional|Urgent|ER|Children|General)/i.test(name);
+          if (suspicious) return false;
+
+          // Heuristic: require some community signal when available
+          if (typeof p.userRatingCount === 'number' && p.userRatingCount < 5) return false;
+          return true;
+        };
+
+        let filtered = places.filter(looksLikeHospital);
+        // Fallback if filtering is too strict
+        if (filtered.length === 0) filtered = places;
+
+        // Use filtered list for further processing
+        places = filtered;
+
         // Defensive: sort by actual distance in case API does not
         // strictly return by distance. Requires geometry library.
         try {
@@ -145,151 +304,32 @@ export default function Home() {
         } catch (e) {
           // If geometry library not available, proceed with API order
         }
+        // Keep 3 others after the nearest, ensuring 4 unique total
+        const others = places.slice(1, 4);
+        setNearbyHospitals(others);
 
+        // Clear existing hospital markers then add new ones
+        clearHospitalMarkers();
+        try {
+          others.forEach((p, idx) => {
+            if (!p.location) return;
+            const marker = new AdvancedMarkerElement({
+              position: p.location,
+              map: map,
+              title: (typeof p.displayName === 'string' ? p.displayName : p.displayName?.text) || `Hospital ${idx + 1}`,
+            });
+            // Route on marker click
+            marker.addListener?.('gmp-click', () => routeToHospital(p, location));
+            hospitalMarkersRef.current.push(marker);
+          });
+        } catch (markerError) {
+          console.error('Marker error', markerError);
+        }
+
+        // Default to the closest one
         const hospital = places[0];
         console.log('🏥 First hospital found:', hospital);
-        setNearestHospital(hospital);
-
-        // Add hospital marker using AdvancedMarkerElement
-        try {
-          new AdvancedMarkerElement({
-            position: hospital.location,
-            map: map,
-            title: hospital.displayName || 'Hospital',
-          });
-
-          // Fit map bounds to show both user location and hospital
-          if (hospital.location) {
-            const bounds = new google.maps.LatLngBounds();
-            bounds.extend(location);
-            bounds.extend(hospital.location);
-            map.fitBounds(bounds);
-            
-            // Add some padding to the bounds
-            const listener = google.maps.event.addListener(map, 'bounds_changed', () => {
-              const currentBounds = map.getBounds();
-              if (currentBounds) {
-                const ne = currentBounds.getNorthEast();
-                const sw = currentBounds.getSouthWest();
-                const latDiff = ne.lat() - sw.lat();
-                const lngDiff = ne.lng() - sw.lng();
-                
-                // Add 20% padding
-                const latPadding = latDiff * 0.2;
-                const lngPadding = lngDiff * 0.2;
-                
-                const newBounds = new google.maps.LatLngBounds(
-                  new google.maps.LatLng(sw.lat() - latPadding, sw.lng() - lngPadding),
-                  new google.maps.LatLng(ne.lat() + latPadding, ne.lng() + lngPadding)
-                );
-                
-                map.fitBounds(newBounds);
-                google.maps.event.removeListener(listener);
-              }
-            });
-          }
-        } catch (markerError) {
-          setError(`Error creating hospital marker: ${markerError instanceof Error ? markerError.message : 'Unknown error'}`);
-          setIsLoading(false);
-          return;
-        }
-
-        // Get route to the hospital using new Routes API
-        if (!hospital.location) {
-          setError('Hospital location not available');
-          setIsLoading(false);
-          return;
-        }
-
-        try {
-          // Import Routes library
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const routesLibrary = await google.maps.importLibrary('routes') as any;
-          
-          const Route = routesLibrary.Route;
-
-          // Convert LatLng objects to the format expected by Routes API
-          const origin = { 
-            lat: location.lat(), 
-            lng: location.lng() 
-          };
-          const destination = { 
-            lat: hospital.location.lat(), 
-            lng: hospital.location.lng() 
-          };
-
-          const routeRequest = {
-            origin: origin,
-            destination: destination,
-            travelMode: 'DRIVING',
-            fields: ['path', 'distanceMeters', 'durationMillis', 'legs'],
-            routingPreference: 'TRAFFIC_AWARE_OPTIMAL',
-            computeAlternativeRoutes: false,
-            routeModifiers: {
-              avoidTolls: false,
-              avoidHighways: false,
-              avoidFerries: false
-            }
-          };
-
-          const { routes } = await Route.computeRoutes(routeRequest);
-
-          if (routes && routes.length > 0) {
-            const route = routes[0];
-            
-            
-            // Extract route information
-            const distance = route.distanceMeters ? `${Math.round(route.distanceMeters / 1000 * 10) / 10} km` : 'Unknown distance';
-            const duration = route.durationMillis ? `${Math.round(route.durationMillis / 60000)} min` : 'Unknown duration';
-            setRouteInfo({ distance, duration });
-            
-            // Extract step-by-step directions
-            const steps: DirectionStep[] = [];
-            if (route.legs && route.legs.length > 0) {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              route.legs.forEach((leg: any) => {
-                if (leg.steps) {
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  leg.steps.forEach((step: any) => {
-                    // Use the instructions field directly from the step
-                    const instruction = step.instructions || 'Continue';
-                    
-                    steps.push({
-                      instruction: instruction,
-                      distance: step.distanceMeters ? `${Math.round(step.distanceMeters)}m` : '',
-                      duration: step.durationMillis ? `${Math.round(step.durationMillis / 1000)}s` : ''
-                    });
-                  });
-                }
-              });
-            }
-            setDirections(steps);
-            
-            if (route.path && route.path.length > 0) {
-              // Convert LatLngAltitude points to LatLngLiteral for Polyline
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const path = route.path.map((point: any) => ({ 
-                lat: point.lat, 
-                lng: point.lng 
-              }));
-              
-              // Draw the route on the map
-              new google.maps.Polyline({
-                map: map,
-                path: path,
-                strokeOpacity: 1,
-                strokeWeight: 6,
-                strokeColor: '#4285F4'
-              });
-            } else {
-              setError('Could not get route path to the hospital');
-            }
-          } else {
-            setError('Could not find route to the hospital');
-          }
-        } catch (routeError) {
-          setError(`Could not get route to the hospital: ${routeError instanceof Error ? routeError.message : 'Unknown error'}`);
-        }
+        await routeToHospital(hospital, location);
       } else {
         console.log('❌ No hospitals found nearby');
         setError('No hospitals found nearby');
@@ -348,41 +388,34 @@ export default function Home() {
                 {nearestHospital.formattedAddress && (
                   <div className="text-sm text-green-600 mb-3">{nearestHospital.formattedAddress}</div>
                 )}
-                {routeInfo && (
-                  <div className="flex gap-4 text-sm text-green-600 mb-3">
-                    <span>📏 {routeInfo.distance}</span>
-                    <span>⏱️ {routeInfo.duration}</span>
-                  </div>
-                )}
-                <div className="text-xs text-green-600">
-                  Route displayed on map →
-                </div>
+                <div className="text-xs text-green-600">Routing shown on map →</div>
               </div>
             </div>
           )}
 
-          {directions.length > 0 && (
-            <div className="mb-4">
-              <h3 className="text-sm text-gray-700 mb-3">Directions</h3>
-              <div className="space-y-2 max-h-64 overflow-y-auto">
-                {directions.map((step, index) => (
-                  <div key={index} className="flex items-start gap-3 p-2 bg-gray-50 rounded text-sm">
-                    <div className="flex-shrink-0 w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-xs">
-                      {index + 1}
+          {nearbyHospitals.length > 0 && (
+            <div className="mb-6">
+              <h3 className="text-sm text-gray-700 mb-3">Other nearby hospitals</h3>
+              <div className="space-y-2">
+                {nearbyHospitals.map((h, i) => (
+                  <button
+                    key={h.id || i}
+                    onClick={() => userLocation && routeToHospital(h, userLocation)}
+                    className="w-full text-left p-3 rounded border hover:bg-blue-50 hover:border-blue-200 transition-colors"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-medium text-gray-800">{typeof h.displayName === 'string' ? h.displayName : h.displayName?.text || 'Hospital'}</div>
+                        {h.formattedAddress && (
+                          <div className="text-xs text-gray-500">{h.formattedAddress}</div>
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-500">#{i + 1}</div>
                     </div>
-                    <div className="flex-1">
-                      <div className="text-gray-800">{step.instruction}</div>
-                      {(step.distance || step.duration) && (
-                        <div className="text-xs text-gray-500 mt-1">
-                          {step.distance && <span>{step.distance}</span>}
-                          {step.distance && step.duration && <span> • </span>}
-                          {step.duration && <span>{step.duration}</span>}
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                  </button>
                 ))}
               </div>
+              <div className="text-xs text-gray-500 mt-2">Tip: Click a hospital to route.</div>
             </div>
           )}
         </div>
@@ -396,6 +429,33 @@ export default function Home() {
               <div className="text-center p-6">
                 <div className="text-gray-500 mb-2">Google Maps API key required</div>
                 <div className="text-sm text-gray-400">Add your API key to .env.local</div>
+              </div>
+            </div>
+          )}
+          {/* Directions overlay on top-right of map */}
+          {directions.length > 0 && (
+            <div className="absolute top-4 right-4 w-80 max-h-[70vh] overflow-y-auto bg-transparent">
+              <div className="px-2 mb-2">
+                <div className="text-sm text-black">Directions</div>
+              </div>
+              <div className="p-2 space-y-2">
+                {directions.map((step, index) => (
+                  <div key={index} className="flex items-start gap-3 p-3 rounded-lg bg-white/20 backdrop-blur-md border border-white/30 shadow-sm">
+                    <div className="flex-shrink-0 w-6 h-6 bg-blue-100/80 text-blue-700 rounded-full flex items-center justify-center text-xs">
+                      {index + 1}
+                    </div>
+                    <div className="flex-1">
+                      <div className="text-gray-900">{step.instruction}</div>
+                      {(step.distance || step.duration) && (
+                        <div className="text-xs text-gray-700 mt-1">
+                          {step.distance && <span>{step.distance}</span>}
+                          {step.distance && step.duration && <span> • </span>}
+                          {step.duration && <span>{step.duration}</span>}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
