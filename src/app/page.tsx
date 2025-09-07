@@ -108,9 +108,12 @@ export default function Home() {
       const request = {
         locationRestriction: {
           center: location,
-          radius: 5000 // 5km radius
+          radius: 8000 // Search within ~8km; adjust as needed
         },
         includedPrimaryTypes: ['hospital'],
+        // Ensure results are ordered by distance; otherwise popularity is used
+        rankPreference: 'DISTANCE' as const,
+        maxResultCount: 20,
         fields: ['displayName', 'location', 'formattedAddress', 'id']
       };
 
@@ -129,6 +132,20 @@ export default function Home() {
       }
       
       if (places && places.length > 0) {
+        // Defensive: sort by actual distance in case API does not
+        // strictly return by distance. Requires geometry library.
+        try {
+          const sorted = [...places].sort((a, b) => {
+            if (!a.location || !b.location) return 0;
+            const da = google.maps.geometry.spherical.computeDistanceBetween(location, a.location);
+            const db = google.maps.geometry.spherical.computeDistanceBetween(location, b.location);
+            return da - db;
+          });
+          places = sorted;
+        } catch (e) {
+          // If geometry library not available, proceed with API order
+        }
+
         const hospital = places[0];
         console.log('🏥 First hospital found:', hospital);
         setNearestHospital(hospital);
